@@ -1,22 +1,531 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Public Distribution System Portal</title>
-<meta name="description" content="Public Distribution System (PDS) e-Services Portal — Citizen and Department services, ration card management, reports and grievance redressal." />
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌾</text></svg>" />
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="./main.css" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>AI-Enabled Smart PDS Ration Dispenser — 3D Concept Model</title>
+<style>
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#e9edf2; font-family: Arial, Helvetica, sans-serif; }
+  #canvas-container { position:fixed; inset:0; touch-action:none; }
+  #canvas-container canvas { display:block; }
+  #title {
+    position:fixed; top:16px; left:50%; transform:translateX(-50%);
+    font-size:13px; font-weight:700; color:#1c3f7c; letter-spacing:.01em;
+    background:rgba(255,255,255,0.7); padding:6px 14px; border-radius:14px;
+    white-space:nowrap;
+  }
+  #hint {
+    position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
+    font-size:11.5px; color:#54606d; background:rgba(255,255,255,0.72);
+    padding:6px 14px; border-radius:16px; pointer-events:none; white-space:nowrap;
+  }
+  #controls { position:fixed; top:16px; right:14px; display:flex; gap:8px; }
+  button.ctrl {
+    border:none; background:rgba(255,255,255,0.85); color:#1c3f7c; font-size:11.5px;
+    font-weight:700; padding:8px 12px; border-radius:14px; cursor:pointer;
+  }
+  button.ctrl:active { background:#1c3f7c; color:#fff; }
+</style>
 </head>
 <body>
-  <div id="skip-link"><a href="#main-content">Skip to main content</a></div>
-  <div id="app-header"></div>
-  <main id="main-content"></main>
-  <div id="app-footer"></div>
-  <div id="toast-root" aria-live="polite"></div>
+<div id="canvas-container"></div>
+<div id="title">Smart PDS Ration Dispenser — 3D concept</div>
+<div id="hint">Drag to rotate · Pinch / scroll to zoom</div>
+<div id="controls">
+  <button class="ctrl" id="autorotateBtn">Auto-rotate: On</button>
+  <button class="ctrl" id="resetBtn">Reset view</button>
+</div>
 
-  <script type="module" src="./app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ---------------------------------------------------------------------
+   AI-Enabled Smart PDS Ration Dispenser — stylized interactive 3D model
+   Built from primitive geometry + canvas-drawn label textures.
+--------------------------------------------------------------------- */
+
+/* ---------- small helpers ---------- */
+function makeTexture(draw, w, h) {
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  draw(ctx, w, h);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function makeLabel(text, opts = {}) {
+  const {
+    fontSize = 42, color = '#20262d', weight = 700, bg = null,
+    width = 420, height = 120, align = 'center'
+  } = opts;
+  return makeTexture((ctx, w, h) => {
+    if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h); }
+    ctx.fillStyle = color;
+    ctx.font = `${weight} ${fontSize}px Arial`;
+    ctx.textAlign = align;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, align === 'center' ? w / 2 : 14, h / 2);
+  }, width, height);
+}
+
+function addPlane(parent, texture, w, h, pos, rot) {
+  const mat = new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+  mesh.position.set(pos[0], pos[1], pos[2]);
+  if (rot) mesh.rotation.set(rot[0] || 0, rot[1] || 0, rot[2] || 0);
+  parent.add(mesh);
+  return mesh;
+}
+
+function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
+
+/* ---------- renderer / scene / camera ---------- */
+const container = document.getElementById('canvas-container');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xe9edf2);
+
+const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 100);
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ---------- lighting ---------- */
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const keyLight = new THREE.DirectionalLight(0xffffff, 0.95);
+keyLight.position.set(4.5, 8, 6);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(1024, 1024);
+keyLight.shadow.camera.left = -5; keyLight.shadow.camera.right = 5;
+keyLight.shadow.camera.top = 5; keyLight.shadow.camera.bottom = -5;
+scene.add(keyLight);
+const fillLight = new THREE.DirectionalLight(0xdfe9ff, 0.4);
+fillLight.position.set(-5, 3, -4);
+scene.add(fillLight);
+
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.ShadowMaterial({ opacity: 0.22 }));
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+/* ---------- materials ---------- */
+const bodyMat   = new THREE.MeshStandardMaterial({ color: 0xf3f5f7, roughness: 0.55, metalness: 0.05 });
+const blueMat   = new THREE.MeshStandardMaterial({ color: 0x1a5ec2, roughness: 0.42, metalness: 0.15 });
+const darkMat   = new THREE.MeshStandardMaterial({ color: 0x14181d, roughness: 0.5, metalness: 0.3 });
+const metalMat  = new THREE.MeshStandardMaterial({ color: 0xb7c0c7, roughness: 0.35, metalness: 0.85 });
+const glassMat  = new THREE.MeshStandardMaterial({ color: 0xbfd6ff, roughness: 0.15, metalness: 0.05, transparent: true, opacity: 0.32, side: THREE.DoubleSide });
+const riceMat   = new THREE.MeshStandardMaterial({ color: 0xe9e1c8, roughness: 0.9 });
+const wheatMat  = new THREE.MeshStandardMaterial({ color: 0xb4864c, roughness: 0.9 });
+const lensMat   = new THREE.MeshStandardMaterial({ color: 0x0d1013, metalness: 0.8, roughness: 0.2 });
+
+/* ---------- overall dimensions ---------- */
+const bodyW = 2.6, bodyH = 4.4, bodyD = 1.3;
+const footH = 0.22;
+
+/* ---------- feet ---------- */
+const footGeo = new THREE.CylinderGeometry(0.09, 0.11, footH, 16);
+const footMat = new THREE.MeshStandardMaterial({ color: 0x1a1d21, roughness: 0.6, metalness: 0.2 });
+[[-1.15, -0.5], [1.15, -0.5], [-1.15, 0.5], [1.15, 0.5]].forEach(([fx, fz]) => {
+  const foot = new THREE.Mesh(footGeo, footMat);
+  foot.position.set(fx, footH / 2, fz);
+  foot.castShadow = true;
+  scene.add(foot);
+});
+
+/* ---------- machine group ---------- */
+const machine = new THREE.Group();
+machine.position.y = footH;
+scene.add(machine);
+
+/* cabinet body */
+const cabinetGeo = new THREE.BoxGeometry(bodyW, bodyH, bodyD);
+const cabinet = new THREE.Mesh(cabinetGeo, bodyMat);
+cabinet.position.y = bodyH / 2;
+cabinet.castShadow = true; cabinet.receiveShadow = true;
+machine.add(cabinet);
+const edges = new THREE.LineSegments(new THREE.EdgesGeometry(cabinetGeo), new THREE.LineBasicMaterial({ color: 0xaab2ba }));
+edges.position.copy(cabinet.position);
+machine.add(edges);
+
+/* ---------- header / marquee ---------- */
+const headerY = bodyH - 0.35;
+const header = new THREE.Mesh(new THREE.BoxGeometry(bodyW * 0.98, 0.5, 0.1), blueMat);
+header.position.set(0, headerY, bodyD / 2 + 0.03);
+header.rotation.x = -0.18;
+header.castShadow = true;
+machine.add(header);
+
+const headerTex = makeTexture((ctx, w, h) => {
+  ctx.fillStyle = '#175ec7'; ctx.fillRect(0, 0, w, h);
+  // left emblem abstraction (stylized, not an exact reproduction of any official mark)
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(60, h / 2, 34, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  for (let i = -1; i <= 1; i++) ctx.fillRect(56 + i * 11, h / 2 - 18, 4, 36);
+  // title
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.font = '700 32px Arial';
+  ctx.fillText('AI-Enabled Smart PDS', 130, h / 2 - 20);
+  ctx.fillText('Ration Dispenser', 130, h / 2 + 22);
+  // right badge abstraction
+  const rx = w - 175;
+  ctx.save(); ctx.translate(rx, h / 2 - 8);
+  const colors = ['#ff9933', '#128807', '#0b5fbf'];
+  colors.forEach((c, i) => {
+    ctx.strokeStyle = c; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(0, 0, 24 - i * 7, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+  });
+  ctx.restore();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '700 19px Arial';
+  ctx.fillText('Digital India', rx + 38, h / 2 - 14);
+  ctx.font = '400 12px Arial';
+  ctx.fillText('Power To Empower', rx + 38, h / 2 + 10);
+}, 900, 150);
+addPlane(machine, headerTex, bodyW * 0.94, 0.42, [0, headerY, bodyD / 2 + 0.085], [-0.18, 0, 0]);
+
+/* ---------- screen ---------- */
+const screenCX = -0.55, screenCY = 3.15;
+const bezel = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.05, 0.08), darkMat);
+bezel.position.set(screenCX, screenCY, bodyD / 2 + 0.02);
+bezel.castShadow = true;
+machine.add(bezel);
+
+function drawEye(ctx) {
+  ctx.beginPath(); ctx.ellipse(0, 0, 26, 14, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
+}
+function drawFingerprint(ctx) {
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath(); ctx.arc(0, 4, 10 + i * 6, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+  }
+}
+function drawMic(ctx) {
+  roundRect(ctx, -10, -24, 20, 34, 10); ctx.fill();
+  ctx.beginPath(); ctx.arc(0, 8, 18, 0, Math.PI, false); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, 26); ctx.lineTo(0, 38); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-14, 38); ctx.lineTo(14, 38); ctx.stroke();
+}
+
+const screenTex = makeTexture((ctx, w, h) => {
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, '#2f6fd6'); grad.addColorStop(1, '#123f8c');
+  ctx.fillStyle = grad; ctx.fillRect(0, 0, w, h);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic';
+  ctx.font = '400 20px Arial'; ctx.fillText('10:24 AM', w - 26, 42);
+  ctx.font = '400 13px Arial'; ctx.fillText('10 Apr 2025', w - 26, 62);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.beginPath(); ctx.moveTo(40, 40); ctx.lineTo(60, 24); ctx.lineTo(80, 40); ctx.closePath(); ctx.fill();
+  ctx.fillRect(48, 40, 24, 20);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '700 46px Arial'; ctx.fillText('Welcome', w / 2, 195);
+  ctx.font = '400 23px Arial'; ctx.fillText('Please authenticate', w / 2, 232);
+
+  const btnW = 180, btnH = 140, gap = 30, btnY = 300;
+  const startX = w / 2 - (btnW * 3 + gap * 2) / 2;
+  const labels = ['Iris Scan', 'Fingerprint', 'Voice'];
+  for (let i = 0; i < 3; i++) {
+    const bx = startX + i * (btnW + gap);
+    roundRect(ctx, bx, btnY, btnW, btnH, 18);
+    ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.fill();
+    ctx.strokeStyle = '#175ec7'; ctx.lineWidth = 4; ctx.fillStyle = '#175ec7';
+    ctx.save(); ctx.translate(bx + btnW / 2, btnY + 52);
+    if (i === 0) drawEye(ctx);
+    if (i === 1) drawFingerprint(ctx);
+    if (i === 2) drawMic(ctx);
+    ctx.restore();
+    ctx.font = '600 20px Arial'; ctx.fillText(labels[i], bx + btnW / 2, btnY + btnH - 18);
+  }
+}, 700, 520);
+addPlane(machine, screenTex, 1.4, 1.05, [screenCX, screenCY, bodyD / 2 + 0.065]);
+
+/* ---------- iris scanner ---------- */
+const camX = 0.68, camY = 3.55;
+const camBox = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.28, 0.12), darkMat);
+camBox.position.set(camX, camY, bodyD / 2 + 0.03);
+camBox.castShadow = true;
+machine.add(camBox);
+const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.06, 24), lensMat);
+lens.rotation.x = Math.PI / 2;
+lens.position.set(camX, camY, bodyD / 2 + 0.12);
+machine.add(lens);
+[[0.5, 0], [-0.5, 0]].forEach(([dx]) => {
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 8), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.6 }));
+  dot.position.set(camX + dx * 0.24, camY - 0.09, bodyD / 2 + 0.1);
+  machine.add(dot);
+});
+addPlane(machine, makeLabel('Iris Scanner', { fontSize: 40, width: 460, height: 110 }), 0.55, 0.13, [camX, camY - 0.26, bodyD / 2 + 0.02]);
+
+/* ---------- fingerprint sensor ---------- */
+const fpX = 0.68, fpY = 2.85;
+const fpBox = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.34, 0.1), darkMat);
+fpBox.position.set(fpX, fpY, bodyD / 2 + 0.03);
+fpBox.castShadow = true;
+machine.add(fpBox);
+const fpTex = makeTexture((ctx, w, h) => {
+  ctx.fillStyle = '#0c1e14'; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = '#37e08a'; ctx.lineWidth = 5;
+  for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.arc(w / 2, h / 2 + 8, 20 + i * 16, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke(); }
+}, 160, 180);
+addPlane(machine, fpTex, 0.22, 0.25, [fpX, fpY, bodyD / 2 + 0.085]);
+addPlane(machine, makeLabel('Fingerprint Sensor', { fontSize: 36, width: 520, height: 110 }), 0.62, 0.13, [fpX, fpY - 0.28, bodyD / 2 + 0.02]);
+
+/* ---------- speaker / mic / status row ---------- */
+const rowY = 2.38;
+const speakerTex = makeTexture((ctx, w, h) => {
+  ctx.fillStyle = '#1c2126'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#8b949c';
+  for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) {
+    ctx.beginPath(); ctx.arc(24 + c * 24, 24 + r * 24, 5, 0, Math.PI * 2); ctx.fill();
+  }
+}, 140, 140);
+addPlane(machine, speakerTex, 0.22, 0.22, [-1.0, rowY, bodyD / 2 + 0.025]);
+addPlane(machine, makeLabel('Speaker', { fontSize: 34, width: 320, height: 100 }), 0.36, 0.11, [-1.0, rowY - 0.22, bodyD / 2 + 0.02]);
+
+const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.1, 16), darkMat);
+mic.rotation.x = Math.PI / 2;
+mic.position.set(-0.28, rowY, bodyD / 2 + 0.05);
+machine.add(mic);
+addPlane(machine, makeLabel('Microphone', { fontSize: 34, width: 380, height: 100 }), 0.44, 0.115, [-0.28, rowY - 0.22, bodyD / 2 + 0.02]);
+
+addPlane(machine, makeLabel('Status', { fontSize: 32, width: 260, height: 90 }), 0.34, 0.12, [0.68, rowY + 0.16, bodyD / 2 + 0.02]);
+const statusColors = [0x2ecc71, 0x2d7dd2, 0xe74c3c];
+const statusLabels = ['Power', 'Network', 'Error'];
+statusColors.forEach((c, i) => {
+  const sx = 0.5 + i * 0.18;
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 16), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.6 }));
+  sphere.position.set(sx, rowY, bodyD / 2 + 0.05);
+  machine.add(sphere);
+  addPlane(machine, makeLabel(statusLabels[i], { fontSize: 30, width: 260, height: 90 }), 0.3, 0.1, [sx, rowY - 0.15, bodyD / 2 + 0.02]);
+});
+
+/* ---------- hopper compartment ---------- */
+const recess = new THREE.Mesh(new THREE.BoxGeometry(bodyW * 0.85, 1.3, 0.12), darkMat);
+recess.position.set(0, 1.58, bodyD / 2 - 0.36);
+machine.add(recess);
+
+function makeHopper(grainMat, labelText) {
+  const group = new THREE.Group();
+  const outer = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.16, 1.0, 4, 1, true), glassMat);
+  outer.rotation.y = Math.PI / 4;
+  group.add(outer);
+  const grain = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.13, 0.8, 4), grainMat);
+  grain.rotation.y = Math.PI / 4;
+  grain.position.y = 0.05;
+  group.add(grain);
+  const spout = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.3, 0.22), metalMat);
+  spout.position.y = -0.65;
+  spout.castShadow = true;
+  group.add(spout);
+  const tagTex = makeLabel(labelText, { fontSize: 44, color: '#ffffff', bg: '#1a5ec2', width: 340, height: 130 });
+  addPlane(group, tagTex, 0.42, 0.16, [0, 0.42, 0.42]);
+  return group;
+}
+
+const hopperY = 1.58;
+const hopperRice = makeHopper(riceMat, 'RICE');
+hopperRice.position.set(-0.62, hopperY, bodyD / 2 - 0.06);
+machine.add(hopperRice);
+const hopperWheat = makeHopper(wheatMat, 'WHEAT');
+hopperWheat.position.set(0.62, hopperY, bodyD / 2 - 0.06);
+machine.add(hopperWheat);
+
+/* ---------- collection tray ---------- */
+function makeTray() {
+  const group = new THREE.Group();
+  const w = 1.7, d = 0.55, h = 0.16, t = 0.05;
+  const base = new THREE.Mesh(new THREE.BoxGeometry(w, t, d), metalMat);
+  base.position.y = t / 2;
+  group.add(base);
+  const front = new THREE.Mesh(new THREE.BoxGeometry(w, h, t), metalMat);
+  front.position.set(0, h / 2, d / 2 - t / 2);
+  group.add(front);
+  const back = front.clone(); back.position.z = -d / 2 + t / 2; group.add(back);
+  const left = new THREE.Mesh(new THREE.BoxGeometry(t, h, d), metalMat);
+  left.position.set(-w / 2 + t / 2, h / 2, 0); group.add(left);
+  const right = left.clone(); right.position.x = w / 2 - t / 2; group.add(right);
+  group.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return group;
+}
+const tray = makeTray();
+tray.position.set(0, 0.62, bodyD / 2 + 0.28);
+machine.add(tray);
+
+/* ---------- "Collect Your Ration" banner ---------- */
+const collectBanner = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.24, 0.12), blueMat);
+collectBanner.position.set(0, 0.34, bodyD / 2 + 0.16);
+machine.add(collectBanner);
+addPlane(machine, makeLabel('Collect Your Ration', { fontSize: 38, color: '#ffffff', width: 700, height: 110 }),
+  1.6, 0.19, [0, 0.34, bodyD / 2 + 0.225]);
+
+/* ---------- bottom banner ---------- */
+const bottomBanner = new THREE.Mesh(new THREE.BoxGeometry(bodyW * 0.98, 0.2, 0.06), blueMat);
+bottomBanner.position.set(0, 0.13, bodyD / 2 + 0.03);
+machine.add(bottomBanner);
+addPlane(machine, makeLabel('Better Nutrition   |   Stronger India', { fontSize: 30, color: '#ffffff', width: 1000, height: 110 }),
+  1.9, 0.16, [0, 0.13, bodyD / 2 + 0.065]);
+
+/* ---------- door lock detail ---------- */
+const lock = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.5, 0.05), darkMat);
+lock.position.set(bodyW / 2 - 0.06, 1.8, bodyD / 2 - 0.02);
+machine.add(lock);
+
+/* ---------- right side panel ---------- */
+const sideW = 0.1, sideH = bodyH * 0.62, sideD = bodyD;
+const sidePanel = new THREE.Mesh(new THREE.BoxGeometry(sideW, sideH, sideD), blueMat);
+sidePanel.position.set(bodyW / 2 + sideW / 2 - 0.01, bodyH - sideH / 2 - 0.15, 0);
+sidePanel.castShadow = true; sidePanel.receiveShadow = true;
+machine.add(sidePanel);
+
+function drawSideIcon(ctx, cx, cy, type) {
+  ctx.save(); ctx.translate(cx, cy);
+  ctx.strokeStyle = '#ffffff'; ctx.fillStyle = '#ffffff'; ctx.lineWidth = 5;
+  if (type === 'shield') {
+    ctx.beginPath();
+    ctx.moveTo(0, -30); ctx.lineTo(26, -18); ctx.lineTo(26, 10);
+    ctx.quadraticCurveTo(26, 32, 0, 42);
+    ctx.quadraticCurveTo(-26, 32, -26, 10);
+    ctx.lineTo(-26, -18); ctx.closePath(); ctx.stroke();
+  } else if (type === 'person') {
+    ctx.beginPath(); ctx.arc(0, -12, 14, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 34, 26, Math.PI, Math.PI * 2); ctx.stroke();
+  } else if (type === 'swoosh') {
+    const cols = ['#ff9933', '#ffffff', '#0b5fbf'];
+    cols.forEach((c, i) => { ctx.strokeStyle = c; ctx.beginPath(); ctx.arc(0, 0, 24 - i * 8, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke(); });
+  } else if (type === 'wheat') {
+    for (let i = -1; i <= 1; i += 2) {
+      ctx.beginPath();
+      for (let j = 0; j < 5; j++) { ctx.moveTo(i * 4, -30 + j * 14); ctx.lineTo(i * 16, -24 + j * 14); }
+      ctx.stroke();
+    }
+    ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(0, 34); ctx.stroke();
+  }
+  ctx.restore();
+}
+const sideTex = makeTexture((ctx, w, h) => {
+  ctx.fillStyle = '#1a5ec2'; ctx.fillRect(0, 0, w, h);
+  const items = [
+    ['shield', 'Secure', 'Authentication'],
+    ['person', 'Transparent', 'Distribution'],
+    ['swoosh', 'Digital', 'India'],
+    ['wheat', 'Food Security', 'for All']
+  ];
+  const step = h / items.length;
+  ctx.textAlign = 'center'; ctx.fillStyle = '#ffffff';
+  items.forEach(([icon, l1, l2], i) => {
+    const cy = step * i + step / 2 - 20;
+    drawSideIcon(ctx, w / 2, cy, icon);
+    ctx.font = '600 24px Arial';
+    ctx.fillText(l1, w / 2, cy + 62);
+    ctx.fillText(l2, w / 2, cy + 90);
+  });
+}, 320, 1500);
+addPlane(machine, sideTex, sideD * 0.92, sideH * 0.94, [sidePanel.position.x + sideW / 2 + 0.001, sidePanel.position.y, 0], [0, Math.PI / 2, 0]);
+
+/* ---------- camera controls (pointer drag + pinch/scroll zoom) ---------- */
+let theta = 0.68, phi = 1.12, radius = 6.6;
+const target = new THREE.Vector3(0, 2.1, 0);
+let autoRotate = true;
+let lastInteraction = 0;
+
+function updateCamera() {
+  camera.position.x = target.x + radius * Math.sin(phi) * Math.sin(theta);
+  camera.position.z = target.z + radius * Math.sin(phi) * Math.cos(theta);
+  camera.position.y = target.y + radius * Math.cos(phi);
+  camera.lookAt(target);
+}
+updateCamera();
+
+const pointers = new Map();
+let lastPinchDist = null;
+const dom = renderer.domElement;
+dom.style.touchAction = 'none';
+
+dom.addEventListener('pointerdown', (e) => {
+  dom.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  lastInteraction = performance.now();
+});
+dom.addEventListener('pointermove', (e) => {
+  if (!pointers.has(e.pointerId)) return;
+  const prev = pointers.get(e.pointerId);
+  const curr = { x: e.clientX, y: e.clientY };
+  if (pointers.size === 1) {
+    const dx = curr.x - prev.x, dy = curr.y - prev.y;
+    theta -= dx * 0.0065;
+    phi = clamp(phi - dy * 0.0065, 0.35, 1.5);
+    pointers.set(e.pointerId, curr);
+    updateCamera();
+  } else if (pointers.size === 2) {
+    pointers.set(e.pointerId, curr);
+    const pts = Array.from(pointers.values());
+    const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    if (lastPinchDist !== null) {
+      radius = clamp(radius - (dist - lastPinchDist) * 0.02, 3, 12);
+      updateCamera();
+    }
+    lastPinchDist = dist;
+  }
+  lastInteraction = performance.now();
+});
+function endPointer(e) {
+  pointers.delete(e.pointerId);
+  lastPinchDist = null;
+  lastInteraction = performance.now();
+}
+dom.addEventListener('pointerup', endPointer);
+dom.addEventListener('pointercancel', endPointer);
+dom.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  radius = clamp(radius + e.deltaY * 0.0035, 3, 12);
+  updateCamera();
+  lastInteraction = performance.now();
+}, { passive: false });
+
+document.getElementById('autorotateBtn').addEventListener('click', (e) => {
+  autoRotate = !autoRotate;
+  e.target.textContent = 'Auto-rotate: ' + (autoRotate ? 'On' : 'Off');
+});
+document.getElementById('resetBtn').addEventListener('click', () => {
+  theta = 0.68; phi = 1.12; radius = 6.6; updateCamera();
+});
+
+/* ---------- render loop ---------- */
+function animate() {
+  requestAnimationFrame(animate);
+  if (autoRotate && pointers.size === 0 && performance.now() - lastInteraction > 1400) {
+    theta += 0.0022;
+    updateCamera();
+  }
+  renderer.render(scene, camera);
+}
+animate();
+</script>
 </body>
 </html>
